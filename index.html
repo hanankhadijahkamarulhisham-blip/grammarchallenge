@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CARTOONS GRAMMAR</title>
+    
+    <!-- Tailwind CSS, Three.js, MediaPipe -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@600;800;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            margin: 0; overflow: hidden;
+            font-family: 'Nunito', sans-serif;
+            background-color: #1a202c; color: white;
+            user-select: none; touch-action: none;
+        }
+        
+        .cartoon-font { font-family: 'Bangers', cursive; letter-spacing: 2px; }
+        
+        /* Layering */
+        #webcam-container {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1;
+            transform: scaleX(-1); /* Mirror natural webcam */
+        }
+        #webcam-video { width: 100%; height: 100%; object-fit: cover; }
+        
+        #canvas3d-container {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2; pointer-events: none;
+        }
+        
+        #particles-canvas {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 3; pointer-events: none;
+        }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 4; pointer-events: none;
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+        
+        /* Cursor */
+        #pointer-cursor {
+            position: absolute; width: 30px; height: 30px; background-color: #fbbf24;
+            border: 4px solid #ffffff; border-radius: 50%; transform: translate(-50%, -50%);
+            z-index: 50; pointer-events: none; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            transition: transform 0.1s, background-color 0.2s;
+        }
+        #pointer-cursor.active {
+            background-color: #34d399; transform: translate(-50%, -50%) scale(1.5);
+            box-shadow: 0 0 30px #34d399;
+        }
+
+        /* UI Elements */
+        .ui-element { pointer-events: auto; }
+        
+        .dashboard-panel {
+            background: rgba(15, 23, 42, 0.85); border: 4px solid #38bdf8;
+            backdrop-filter: blur(8px); box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            border-radius: 2rem; padding: 1rem 2rem;
+        }
+
+        #question-box {
+            background: linear-gradient(145deg, #ffffff, #f0f0f0); color: #1e293b;
+            padding: 1.5rem 3rem; border-radius: 2rem; box-shadow: 0 15px 30px rgba(0,0,0,0.5);
+            text-align: center; margin-top: 1rem; max-width: 85%; align-self: center;
+            border: 6px solid #f59e0b; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        
+        /* Answer targets */
+        .answer-container {
+            position: absolute; width: 220px; height: 220px;
+            display: flex; justify-content: center; align-items: center; text-align: center;
+            font-size: 2.5rem; font-family: 'Bangers', cursive; color: white;
+            text-shadow: 4px 4px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000; 
+            border-radius: 50%; transition: transform 0.2s;
+        }
+        #ans-left { top: 50%; left: 8%; transform: translateY(-50%); }
+        #ans-right { top: 50%; right: 8%; transform: translateY(-50%); }
+        
+        /* Loading Ring */
+        .progress-ring {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-90deg);
+            width: 240px; height: 240px; pointer-events: none; opacity: 0; transition: opacity 0.2s;
+        }
+        .progress-ring circle {
+            fill: transparent; stroke: #fbbf24; stroke-width: 16;
+            stroke-dasharray: 691; stroke-dashoffset: 691; /* 2 * pi * 110 */
+            transition: stroke-dashoffset 0.1s linear; filter: drop-shadow(0 0 10px rgba(251,191,36,0.8));
+        }
+
+        /* Screens */
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,58,138,0.95));
+            display: flex; flex-direction: column; justify-content: center; align-items: center; 
+            z-index: 100; pointer-events: auto; backdrop-filter: blur(12px);
+        }
+        .hidden { display: none !important; }
+        
+        .btn-cartoon {
+            background: linear-gradient(to bottom, #ef4444, #b91c1c); color: white;
+            padding: 1rem 3rem; border-radius: 9999px; font-size: 2.5rem; font-family: 'Bangers', cursive;
+            border: 4px solid #fca5a5; cursor: pointer; text-transform: uppercase; letter-spacing: 2px;
+            box-shadow: 0 10px 0 #7f1d1d, 0 20px 25px rgba(0,0,0,0.5); transition: all 0.1s;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        .btn-cartoon:active {
+            transform: translateY(10px); box-shadow: 0 0 0 #7f1d1d, 0 10px 10px rgba(0,0,0,0.5);
+        }
+
+        .loader {
+            border: 8px solid rgba(255,255,255,0.1); border-top: 8px solid #38bdf8;
+            border-radius: 50%; width: 80px; height: 80px; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .leaderboard-list li {
+            background: rgba(255,255,255,0.1); margin: 0.5rem 0; padding: 0.5rem 1.5rem;
+            border-radius: 1rem; display: flex; justify-content: space-between;
+            font-size: 1.5rem; font-weight: bold; border: 2px solid rgba(255,255,255,0.2);
+        }
+        .rank-1 { background: linear-gradient(90deg, #ca8a04, #fef08a) !important; color: #713f12; border-color: #fef08a !important;}
+        .rank-2 { background: linear-gradient(90deg, #94a3b8, #e2e8f0) !important; color: #334155; border-color: #e2e8f0 !important;}
+        .rank-3 { background: linear-gradient(90deg, #9a3412, #fdba74) !important; color: #431407; border-color: #fdba74 !important;}
+
+        #hardware-info {
+            position: absolute; bottom: 10px; right: 10px; font-size: 0.8rem; color: rgba(255,255,255,0.5); pointer-events: none;
+        }
+
+        /* Mascot Animations */
+        .mascot-float {
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes float {
+            0% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-15px) rotate(5deg); }
+            100% { transform: translateY(0px) rotate(0deg); }
+        }
+        
+        #player-name-input {
+            transition: all 0.2s;
+            font-family: 'Nunito', sans-serif;
+        }
+        #player-name-input:focus {
+            box-shadow: 0 0 15px #facc15;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Webcam -->
+    <div id="webcam-container">
+        <video id="webcam-video" autoplay playsinline></video>
+    </div>
+
+    <!-- Canvas layers -->
+    <div id="canvas3d-container"></div>
+    <canvas id="particles-canvas"></canvas>
+
+    <!-- Cursor -->
+    <div id="pointer-cursor" class="hidden"></div>
+
+    <!-- UI Overlay (Dashboard) -->
+    <div id="ui-layer" class="hidden">
+        <div class="flex justify-between items-start p-6 w-full ui-element">
+            <div class="dashboard-panel flex flex-col items-center">
+                <span class="text-sm uppercase tracking-widest text-gray-300 font-bold">Progress</span>
+                <span class="cartoon-font text-4xl text-white"><span id="q-counter">1</span>/10</span>
+            </div>
+            <div class="dashboard-panel flex flex-col items-center border-yellow-400">
+                <span class="text-sm uppercase tracking-widest text-gray-300 font-bold">Score</span>
+                <span class="cartoon-font text-5xl text-yellow-400 drop-shadow-md" id="score-display">0</span>
+            </div>
+            <div class="dashboard-panel flex flex-col items-center border-red-400">
+                <span class="text-sm uppercase tracking-widest text-gray-300 font-bold">Time Left</span>
+                <span class="cartoon-font text-5xl text-red-400 drop-shadow-md" id="time-display">60</span>
+            </div>
+        </div>
+
+        <div id="question-box" class="ui-element">
+            <h2 class="text-2xl font-black mb-2 text-blue-500 uppercase tracking-widest">Cartoons Grammar</h2>
+            <p id="question-text" class="text-4xl font-extrabold text-gray-800 leading-tight">...</p>
+        </div>
+
+        <div id="ans-left" class="answer-container">
+            <span id="text-left" class="relative z-10">Option A</span>
+            <svg class="progress-ring" id="ring-left"><circle cx="120" cy="120" r="110"></circle></svg>
+        </div>
+        <div id="ans-right" class="answer-container">
+            <span id="text-right" class="relative z-10">Option B</span>
+            <svg class="progress-ring" id="ring-right"><circle cx="120" cy="120" r="110"></circle></svg>
+        </div>
+        <div class="h-10"></div> 
+
+        <!-- Gameplay Mascot (Bottom Left) -->
+        <div class="absolute bottom-4 left-4 pointer-events-none mascot-float opacity-80" id="gameplay-mascot">
+            <svg viewBox="0 0 100 100" class="w-24 h-24 drop-shadow-lg">
+                <circle cx="50" cy="50" r="40" fill="#f472b6"/>
+                <circle cx="35" cy="45" r="8" fill="white"/><circle cx="35" cy="45" r="4" fill="black"/>
+                <circle cx="65" cy="45" r="8" fill="white"/><circle cx="65" cy="45" r="4" fill="black"/>
+                <path d="M 40 65 Q 50 75 60 65" stroke="white" stroke-width="4" fill="transparent" stroke-linecap="round"/>
+                <polygon points="20,15 35,28 25,35" fill="#db2777"/>
+                <polygon points="80,15 65,28 75,35" fill="#db2777"/>
+            </svg>
+            <div class="bg-white text-pink-600 text-xs font-bold px-2 py-1 rounded-full absolute -top-2 -right-4 shadow-md cartoon-font">
+                You can do it!
+            </div>
+        </div>
+    </div>
+
+    <div id="loading-screen" class="screen">
+        <h1 class="text-7xl text-yellow-300 mb-8 cartoon-font text-center drop-shadow-2xl">CARTOONS GRAMMAR</h1>
+        <div class="loader mb-6"></div>
+        <p id="loading-text" class="text-2xl font-bold">Detecting Hardware & Camera...</p>
+        <p class="text-lg mt-4 text-gray-300">Please allow camera access to play.</p>
+        <div id="hardware-info">Initializing...</div>
+    </div>
+
+    <div id="start-screen" class="screen hidden">
+        <h1 class="text-8xl text-yellow-300 mb-2 cartoon-font text-center drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)]">CARTOONS GRAMMAR</h1>
+        <h2 class="text-4xl text-white mb-6 cartoon-font drop-shadow-md">Year 2 Challenge</h2>
+        
+        <!-- Mascot -->
+        <div class="mascot-float mb-4 z-10 relative">
+            <svg viewBox="0 0 100 100" class="w-40 h-40 drop-shadow-2xl">
+                <!-- Body -->
+                <circle cx="50" cy="50" r="40" fill="#f472b6"/>
+                <!-- Eyes -->
+                <circle cx="35" cy="45" r="10" fill="white"/><circle cx="35" cy="45" r="5" fill="black"/>
+                <circle cx="65" cy="45" r="10" fill="white"/><circle cx="65" cy="45" r="5" fill="black"/>
+                <!-- Cute Smile -->
+                <path d="M 35 60 Q 50 75 65 60" stroke="white" stroke-width="5" fill="transparent" stroke-linecap="round"/>
+                <!-- Horns/Ears -->
+                <polygon points="20,10 40,25 25,35" fill="#db2777"/>
+                <polygon points="80,10 60,25 75,35" fill="#db2777"/>
+            </svg>
+            <div class="absolute -top-4 -right-10 bg-white text-pink-600 px-4 py-2 rounded-2xl border-4 border-pink-400 font-bold shadow-xl rotate-12 cartoon-font text-xl">
+                Hi! I'm Grammy!
+            </div>
+        </div>
+
+        <div class="bg-blue-900 bg-opacity-60 p-6 rounded-3xl border-4 border-blue-400 max-w-3xl mb-6 text-center shadow-2xl z-0">
+            <h3 class="text-3xl text-yellow-300 font-bold mb-4 cartoon-font">How to Play:</h3>
+            <ul class="text-left space-y-2 text-xl font-bold">
+                <li>🖐️ Step back and use your <b>Hand</b> to control the cursor.</li>
+                <li>🎯 Point your <b>Index Finger</b> at the correct Magic Ball.</li>
+                <li>⏳ <b>Hold your finger steady for 1 second</b> to open it!</li>
+            </ul>
+        </div>
+
+        <!-- Name Input -->
+        <div class="mb-6 flex flex-col items-center">
+            <input type="text" id="player-name-input" placeholder="Type your Name here!" 
+                   class="text-2xl p-4 rounded-full border-4 border-yellow-400 text-center text-gray-800 focus:outline-none w-80 font-bold shadow-lg" maxlength="15">
+            <span id="name-error" class="text-red-400 font-bold mt-2 hidden text-lg bg-black bg-opacity-50 px-3 py-1 rounded">Please enter your name to play!</span>
+        </div>
+
+        <button id="start-btn" class="btn-cartoon">START GAME!</button>
+    </div>
+
+    <div id="game-over-screen" class="screen hidden">
+        <h1 class="text-7xl text-white mb-2 cartoon-font text-center drop-shadow-xl" id="end-title">GAME OVER!</h1>
+        <p id="motivational-quote" class="text-2xl text-yellow-300 font-bold italic mb-6 text-center max-w-2xl">"Great job! Keep practicing!"</p>
+        
+        <div class="flex gap-8 items-start">
+            <!-- Score Card -->
+            <div class="bg-gray-800 bg-opacity-80 p-8 rounded-3xl border-4 border-gray-600 text-center shadow-2xl w-80">
+                <h2 class="text-3xl text-gray-300 mb-2 font-bold uppercase tracking-widest text-sm" id="player-result-name">Your Score</h2>
+                <div class="text-7xl cartoon-font text-yellow-400 drop-shadow-lg mb-4" id="final-score">0</div>
+                <div class="text-xl text-gray-400 font-bold">Questions: <span id="final-q">10/10</span></div>
+            </div>
+            
+            <!-- Leaderboard -->
+            <div class="bg-indigo-900 bg-opacity-80 p-6 rounded-3xl border-4 border-indigo-400 shadow-2xl w-96">
+                <h2 class="text-3xl text-white mb-4 cartoon-font text-center border-b-2 border-indigo-300 pb-2">Top Scores</h2>
+                <ul id="leaderboard-list" class="leaderboard-list w-full list-none p-0 m-0">
+                    <!-- Dynamic list here -->
+                </ul>
+            </div>
+        </div>
+        
+        <button id="restart-btn" class="btn-cartoon mt-10">PLAY AGAIN</button>
+    </div>
+
+    <script>
+        // --- Hardware Detection & Adaptation ---
+        const hwInfo = document.getElementById('hardware-info');
+        let screenAspect = window.innerWidth / window.innerHeight;
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        hwInfo.innerText = `Res: ${window.innerWidth}x${window.innerHeight} | Mobile: ${isMobile ? 'Yes' : 'No'}`;
+
+        // --- Question Bank (English Year 2 Grammar - Cartoon Theme) ---
+        const allQuestions = [
+            { q: "SpongeBob ___ in a pineapple under the sea.", options: ["live", "lives"], correct: 1 },
+            { q: "Mickey and Minnie ___ best friends.", options: ["is", "are"], correct: 1 },
+            { q: "Pikachu ___ red cheeks and a yellow tail.", options: ["has", "have"], correct: 0 },
+            { q: "___ is Batman's best helper? It is Robin!", options: ["Who", "What"], correct: 0 },
+            { q: "Elsa ___ freeze water with her hands.", options: ["can", "do"], correct: 0 },
+            { q: "The Minions ___ eating bananas all day.", options: ["love", "loves"], correct: 0 },
+            { q: "Superman ___ very fast in the sky.", options: ["fly", "flies"], correct: 1 },
+            { q: "Tom is chasing Jerry. ___ are running fast.", options: ["He", "They"], correct: 1 },
+            { q: "Peppa Pig has a brother. ___ name is George.", options: ["His", "Her"], correct: 0 },
+            { q: "Look at ___ flying car from the Jetsons!", options: ["that", "those"], correct: 0 },
+            { q: "Winnie the Pooh ___ a lot of honey.", options: ["eats", "eat"], correct: 0 },
+            { q: "I am Dora. ___ backpack is magic.", options: ["My", "Me"], correct: 0 },
+            { q: "Batman drives ___ cool black car.", options: ["a", "an"], correct: 0 },
+            { q: "The Avengers ___ saving the city yesterday.", options: ["were", "was"], correct: 0 },
+            { q: "Spider-Man swings ___ the tall buildings.", options: ["between", "on"], correct: 0 }
+        ];
+
+        // Motivational Quotes
+        const quotes = [
+            "Awesome job! You are a Grammar Superhero!",
+            "Fantastic! Keep practicing to be a Grammar Master!",
+            "Great effort! Every mistake is a step to learning!",
+            "Wow! You know your cartoons and your grammar!",
+            "Spectacular! English is fun, isn't it?"
+        ];
+
+        // --- Game State ---
+        let currentQuestions = [];
+        let qIndex = 0;
+        let score = 0;
+        let timeLeft = 60;
+        let gameInterval;
+        let isPlaying = false;
+        let questionTimeout = null;
+        const maxQuestions = 10;
+        let playerName = "Player"; // Default name
+
+        // Interaction state (Strictly one answer)
+        let pointerX = -100;
+        let pointerY = -100;
+        let activeHoverTarget = null; // Only allows one 'left' or 'right'
+        let hoverStartTime = 0;
+        const dwellTimeRequired = 1000; 
+
+        // Elements
+        const uiLayer = document.getElementById('ui-layer');
+        const pointerCursor = document.getElementById('pointer-cursor');
+        const scoreDisplay = document.getElementById('score-display');
+        const timeDisplay = document.getElementById('time-display');
+        const qCounter = document.getElementById('q-counter');
+        const questionText = document.getElementById('question-text');
+        
+        const ansLeft = document.getElementById('ans-left');
+        const ansRight = document.getElementById('ans-right');
+        const textLeft = document.getElementById('text-left');
+        const textRight = document.getElementById('text-right');
+        const ringLeftC = document.querySelector('#ring-left circle');
+        const ringRightC = document.querySelector('#ring-right circle');
+        
+        let leftConfig = { id: 'left', el: ansLeft, ring: ringLeftC, isCorrect: false };
+        let rightConfig = { id: 'right', el: ansRight, ring: ringRightC, isCorrect: false };
+
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+        
+        function playTone(freq, type, duration, vol=0.1) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        // Distinct Sounds
+        function sfxCorrect() {
+            // Happy major arpeggio
+            playTone(523.25, 'sine', 0.15, 0.2); // C5
+            setTimeout(() => playTone(659.25, 'sine', 0.15, 0.2), 100); // E5
+            setTimeout(() => playTone(783.99, 'sine', 0.2, 0.2), 200); // G5
+            setTimeout(() => playTone(1046.50, 'sine', 0.4, 0.2), 300); // C6
+        }
+        
+        function sfxWrong() {
+            // Low dissonant buzz
+            playTone(150, 'sawtooth', 0.3, 0.2);
+            playTone(160, 'sawtooth', 0.3, 0.2);
+            setTimeout(() => {
+                playTone(130, 'square', 0.4, 0.2);
+                playTone(140, 'square', 0.4, 0.2);
+            }, 250);
+        }
+        
+        function sfxPop() { playTone(800, 'sine', 0.1, 0.1); }
+        function sfxTick() { playTone(1000, 'square', 0.05, 0.05); }
+        function sfxGameOver() {
+            playTone(440, 'triangle', 0.3, 0.2);
+            setTimeout(() => playTone(349, 'triangle', 0.3, 0.2), 300);
+            setTimeout(() => playTone(293, 'triangle', 0.6, 0.2), 600);
+        }
+
+        const scene = new THREE.Scene();
+        const camera3D = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera3D.position.z = 12;
+        
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Hardware optimize
+        document.getElementById('canvas3d-container').appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        // --- Gacha Capsule / Magic Ball Models (Replaced Gift Boxes) ---
+        const radius = 1.6;
+        const bottomGeo = new THREE.SphereGeometry(radius, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2); // Separuh bawah
+        const topGeo = new THREE.SphereGeometry(radius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2); // Separuh atas
+        const ringGeo = new THREE.CylinderGeometry(radius * 1.05, radius * 1.05, 0.3, 32);
+        const prizeGeo = new THREE.DodecahedronGeometry(0.6); // Permata di dalam
+
+        const matBaseL = new THREE.MeshPhongMaterial({ color: 0xef4444, shininess: 80 }); // Merah Kiri
+        const matBaseR = new THREE.MeshPhongMaterial({ color: 0x3b82f6, shininess: 80 }); // Biru Kanan
+        
+        // Penutup kaca lutsinar
+        const matTop = new THREE.MeshPhysicalMaterial({ 
+            color: 0xffffff, transparent: true, opacity: 0.5, 
+            roughness: 0.1, metalness: 0.1, transmission: 0.9, thickness: 0.5 
+        });
+        const matRing = new THREE.MeshPhongMaterial({ color: 0xfbbf24, shininess: 100 }); // Cincin emas
+        const matPrize = new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0xfacc15, shininess: 100 }); // Permata bercahaya
+
+        function create3DCapsule(posX, baseMat) {
+            const group = new THREE.Group();
+            
+            // Bahagian bawah
+            const base = new THREE.Mesh(bottomGeo, baseMat);
+            // Cincin tengah
+            const ring = new THREE.Mesh(ringGeo, matRing);
+            // Permata magis di dalam
+            const prize = new THREE.Mesh(prizeGeo, matPrize);
+            prize.position.y = 0.4;
+            
+            group.add(base, ring, prize);
+
+            // Penutup (dikelompokkan supaya boleh diangkat dalam animasi)
+            const lidGroup = new THREE.Group();
+            const top = new THREE.Mesh(topGeo, matTop);
+            lidGroup.add(top);
+            
+            group.add(lidGroup);
+            group.position.set(posX, 0, 0);
+            
+            // Skala ikut peranti
+            let scaleFactor = isMobile ? 0.9 : 1.3;
+            group.scale.set(scaleFactor, scaleFactor, scaleFactor);
+            scene.add(group);
+            
+            return { mesh: group, lid: lidGroup, prize: prize, baseY: 0, isOpen: false, isHovered: false };
+        }
+
+        // Adaptive Positioning
+        let boxDist = screenAspect > 1 ? 5.5 : 3.5; 
+        const box3DLeft = create3DCapsule(-boxDist, matBaseL);
+        const box3DRight = create3DCapsule(boxDist, matBaseR);
+
+        window.addEventListener('resize', () => {
+            screenAspect = window.innerWidth / window.innerHeight;
+            isMobile = window.innerWidth < 768;
+            camera3D.aspect = screenAspect;
+            camera3D.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            
+            // Adjust box distance dynamically
+            boxDist = screenAspect > 1 ? 5.5 : 3.5;
+            box3DLeft.mesh.position.x = -boxDist;
+            box3DRight.mesh.position.x = boxDist;
+            
+            let scaleFactor = isMobile ? 0.9 : 1.3;
+            box3DLeft.mesh.scale.set(scaleFactor,scaleFactor,scaleFactor);
+            box3DRight.mesh.scale.set(scaleFactor,scaleFactor,scaleFactor);
+
+            canvasParticles.width = window.innerWidth;
+            canvasParticles.height = window.innerHeight;
+            hwInfo.innerText = `Res: ${window.innerWidth}x${window.innerHeight} | Mobile: ${isMobile ? 'Yes' : 'No'}`;
+        });
+
+        // 3D Animation Loop
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            const t = Date.now() * 0.003;
+
+            [box3DLeft, box3DRight].forEach(obj => {
+                if (obj.isHovered && !obj.isOpen) {
+                    // Bergegar apabila disasar
+                    obj.mesh.rotation.y = Math.sin(t * 8) * 0.15;
+                    obj.mesh.rotation.z = Math.sin(t * 12) * 0.1;
+                    obj.mesh.position.y = obj.baseY + Math.sin(t * 12) * 0.1;
+                } else {
+                    // Kembali stabil
+                    obj.mesh.rotation.y += (0 - obj.mesh.rotation.y) * 0.1;
+                    obj.mesh.rotation.z += (0 - obj.mesh.rotation.z) * 0.1;
+                    obj.mesh.position.y += (obj.baseY - obj.mesh.position.y) * 0.1;
+                }
+
+                // Pusingkan permata di dalam secara berterusan
+                if(obj.prize) {
+                    obj.prize.rotation.y += 0.05;
+                    obj.prize.rotation.x += 0.02;
+                }
+
+                // Animasi buka penutup bebola
+                if (obj.isOpen) {
+                    if (obj.lid.position.y < 2.5) obj.lid.position.y += 0.15;
+                    if (obj.lid.rotation.x > -Math.PI * 0.1) obj.lid.rotation.x -= 0.02;
+                } else {
+                    if (obj.lid.position.y > 0) obj.lid.position.y -= 0.15;
+                    if (obj.lid.rotation.x < 0) obj.lid.rotation.x += 0.02;
+                }
+            });
+            renderer.render(scene, camera3D);
+        }
+        animate3D();
+
+        const canvasParticles = document.getElementById('particles-canvas');
+        const ctxP = canvasParticles.getContext('2d');
+        canvasParticles.width = window.innerWidth; canvasParticles.height = window.innerHeight;
+        let particles = [];
+
+        class Particle {
+            constructor(x, y, isCorrect) {
+                this.x = x; this.y = y;
+                // Explosive spread
+                this.vx = (Math.random() - 0.5) * 25;
+                this.vy = (Math.random() - 1) * 25 - 5;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.02 + 0.01;
+                
+                if (isCorrect) {
+                    const colors = ['#34d399', '#fbbf24', '#38bdf8', '#f472b6', '#ffffff'];
+                    this.color = colors[Math.floor(Math.random() * colors.length)];
+                } else {
+                    const colors = ['#ef4444', '#991b1b', '#1e293b'];
+                    this.color = colors[Math.floor(Math.random() * colors.length)];
+                }
+                
+                this.size = Math.random() * 15 + 8;
+                this.type = Math.random() > 0.5 ? 'rect' : 'circle';
+                this.angle = Math.random() * Math.PI * 2;
+                this.spin = (Math.random() - 0.5) * 0.2;
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy;
+                this.vy += 0.6; // gravity
+                this.life -= this.decay;
+                this.angle += this.spin;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fillStyle = this.color;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                if(this.type === 'rect') {
+                    ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+                } else {
+                    ctx.beginPath(); ctx.arc(0, 0, this.size/2, 0, Math.PI*2); ctx.fill();
+                }
+                ctx.restore();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        function spawnParticles(x, y, isCorrect) {
+            const count = isCorrect ? 80 : 30; // More confetti for correct
+            for(let i=0; i<count; i++) particles.push(new Particle(x, y, isCorrect));
+        }
+
+        function animateParticles() {
+            ctxP.clearRect(0, 0, canvasParticles.width, canvasParticles.height);
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].draw(ctxP);
+                if (particles[i].life <= 0) particles.splice(i, 1);
+            }
+            requestAnimationFrame(animateParticles);
+        }
+        animateParticles();
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function generateQuestion() {
+            if (qIndex >= maxQuestions) {
+                endGame();
+                return;
+            }
+
+            box3DLeft.isOpen = false; box3DRight.isOpen = false;
+            
+            const q = currentQuestions[qIndex];
+            const swap = Math.random() > 0.5;
+            
+            // Format question HTML
+            questionText.innerHTML = q.q.replace('___', '<span class="text-blue-600 bg-yellow-200 px-4 rounded-xl border-b-4 border-blue-600 inline-block min-w-[80px] text-center shadow-inner">&nbsp;</span>');
+            
+            if (swap) {
+                textLeft.textContent = q.options[1]; textRight.textContent = q.options[0];
+                leftConfig.isCorrect = (q.correct === 1); rightConfig.isCorrect = (q.correct === 0);
+            } else {
+                textLeft.textContent = q.options[0]; textRight.textContent = q.options[1];
+                leftConfig.isCorrect = (q.correct === 0); rightConfig.isCorrect = (q.correct === 1);
+            }
+
+            qCounter.textContent = qIndex + 1;
+
+            // Bounce animation
+            questionText.parentElement.style.transform = 'scale(0.5)';
+            setTimeout(() => {
+                questionText.parentElement.style.transform = 'scale(1)';
+                sfxPop();
+            }, 50);
+            
+            activeHoverTarget = null;
+            hoverStartTime = 0;
+            updateRing(leftConfig.ring, 0); updateRing(rightConfig.ring, 0);
+        }
+
+        function handleSelection(config) {
+            if (!isPlaying || activeHoverTarget === "cooldown") return;
+            activeHoverTarget = "cooldown"; // Lock interaction until next Q
+
+            // Open 3D box
+            if (config.id === 'left') box3DLeft.isOpen = true;
+            else box3DRight.isOpen = true;
+
+            const rect = config.el.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+
+            spawnParticles(cx, cy, config.isCorrect);
+
+            if (config.isCorrect) {
+                sfxCorrect();
+                let points = 10 + Math.floor(timeLeft / 10); // Time bonus
+                score += points;
+                scoreDisplay.textContent = score;
+                // Add class for visual feedback
+                scoreDisplay.classList.add('text-green-400', 'scale-125');
+                setTimeout(() => scoreDisplay.classList.remove('text-green-400', 'scale-125'), 300);
+            } else {
+                sfxWrong();
+                timeLeft = Math.max(0, timeLeft - 5); // Time penalty
+                timeDisplay.textContent = timeLeft;
+                timeDisplay.classList.add('text-red-600', 'scale-125');
+                setTimeout(() => timeDisplay.classList.remove('text-red-600', 'scale-125'), 300);
+            }
+
+            qIndex++;
+            questionTimeout = setTimeout(() => {
+                generateQuestion();
+            }, 2000); // 2 sec delay to show box opening and confetti
+        }
+
+        function startGame() {
+            // Check Name Input
+            const nameInput = document.getElementById('player-name-input');
+            const errorMsg = document.getElementById('name-error');
+            
+            if (nameInput.value.trim() === '') {
+                errorMsg.classList.remove('hidden');
+                nameInput.classList.add('border-red-500');
+                nameInput.classList.remove('border-yellow-400');
+                // Auto focus on input for convenience
+                nameInput.focus();
+                return; // Stop game from starting
+            }
+            
+            errorMsg.classList.add('hidden');
+            playerName = nameInput.value.trim().substring(0, 15);
+
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+            uiLayer.classList.remove('hidden');
+            pointerCursor.classList.remove('hidden');
+            
+            // Init data
+            currentQuestions = shuffle([...allQuestions]).slice(0, maxQuestions);
+            qIndex = 0; score = 0; timeLeft = 90; // 90 secs for 10 Qs
+            scoreDisplay.textContent = score;
+            timeDisplay.textContent = timeLeft;
+            isPlaying = true;
+            
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            
+            generateQuestion();
+            
+            clearInterval(gameInterval);
+            gameInterval = setInterval(() => {
+                if(!isPlaying) return;
+                timeLeft--;
+                timeDisplay.textContent = timeLeft;
+                
+                if(timeLeft <= 10 && timeLeft > 0) {
+                    sfxTick();
+                    timeDisplay.classList.toggle('text-red-500'); // flashing
+                } else {
+                    timeDisplay.classList.remove('text-red-500');
+                }
+                
+                if (timeLeft <= 0) endGame();
+            }, 1000);
+        }
+
+        function saveAndRenderScores() {
+            // Use a new localStorage key so it doesn't conflict with older number-only scores
+            let scores = JSON.parse(localStorage.getItem('cartoonsGrammarScoresV2')) || [];
+            
+            // Add new score object
+            scores.push({ name: playerName, score: score });
+            
+            // Sort Descending by score
+            scores.sort((a, b) => b.score - a.score);
+            scores = scores.slice(0, 5); // Keep Top 5
+            
+            localStorage.setItem('cartoonsGrammarScoresV2', JSON.stringify(scores));
+
+            const listEl = document.getElementById('leaderboard-list');
+            listEl.innerHTML = '';
+            
+            if(scores.length === 0) {
+                listEl.innerHTML = '<li class="text-gray-400">No scores yet.</li>';
+                return;
+            }
+
+            scores.forEach((s, index) => {
+                let rankClass = '';
+                if(index === 0) rankClass = 'rank-1';
+                else if(index === 1) rankClass = 'rank-2';
+                else if(index === 2) rankClass = 'rank-3';
+                
+                listEl.innerHTML += `
+                    <li class="${rankClass}">
+                        <span class="truncate w-3/5">#${index + 1} ${s.name}</span>
+                        <span class="w-2/5 text-right">${s.score} pts</span>
+                    </li>
+                `;
+            });
+        }
+
+        function endGame() {
+            isPlaying = false;
+            clearInterval(gameInterval);
+            clearTimeout(questionTimeout);
+            sfxGameOver();
+            
+            uiLayer.classList.add('hidden');
+            pointerCursor.classList.add('hidden');
+            
+            const goScreen = document.getElementById('game-over-screen');
+            document.getElementById('final-score').textContent = score;
+            document.getElementById('final-q').textContent = `${qIndex}/${maxQuestions}`;
+            document.getElementById('player-result-name').textContent = `${playerName}'s Score`;
+            
+            // Random quote with player name
+            const qtext = quotes[Math.floor(Math.random() * quotes.length)];
+            document.getElementById('motivational-quote').textContent = `${playerName}, ${qtext.toLowerCase()}`;
+            
+            // Title logic based on win/lose
+            document.getElementById('end-title').textContent = (qIndex >= maxQuestions) ? "WELL DONE!" : "TIME'S UP!";
+            document.getElementById('end-title').className = `text-7xl mb-2 cartoon-font text-center drop-shadow-xl ${(qIndex >= maxQuestions) ? 'text-green-400' : 'text-red-400'}`;
+
+            saveAndRenderScores();
+            goScreen.classList.remove('hidden');
+        }
+
+        document.getElementById('start-btn').addEventListener('click', startGame);
+        document.getElementById('restart-btn').addEventListener('click', startGame);
+
+        const videoElement = document.getElementById('webcam-video');
+        
+        function updateRing(ringEl, progress) {
+            const circumference = 691; // 2 * pi * 110
+            const offset = circumference - (progress * circumference);
+            ringEl.style.strokeDashoffset = offset;
+            ringEl.parentElement.style.opacity = progress > 0 ? 1 : 0;
+            // Scale target up slightly when filling
+            ringEl.parentElement.parentElement.style.transform = `translateY(-50%) scale(${1 + (progress * 0.15)})`;
+        }
+        
+        function resetRingScale(el) {
+            el.style.transform = `translateY(-50%) scale(1)`;
+        }
+
+        function isPointInRect(x, y, rect) {
+            // Expand hit area slightly for easier selection on mobile/webcam
+            const padding = 20;
+            return (x >= rect.left - padding && x <= rect.right + padding && 
+                    y >= rect.top - padding && y <= rect.bottom + padding);
+        }
+
+        function checkIntersection() {
+            if (activeHoverTarget === "cooldown" || !isPlaying) {
+                resetHover();
+                return;
+            }
+
+            const rectL = ansLeft.getBoundingClientRect();
+            const rectR = ansRight.getBoundingClientRect();
+
+            let hit = null;
+            // CRITICAL RULE: "JARI TU HANYA BOLEH TUNJUK SATU JE JAWAPAN"
+            // Use if-else to guarantee mutually exclusive selection
+            if (isPointInRect(pointerX, pointerY, rectL)) hit = leftConfig;
+            else if (isPointInRect(pointerX, pointerY, rectR)) hit = rightConfig;
+
+            // Update 3D Wiggle State based on hover
+            box3DLeft.isHovered = hit?.id === 'left';
+            box3DRight.isHovered = hit?.id === 'right';
+
+            if (hit) {
+                pointerCursor.classList.add('active');
+                
+                if (activeHoverTarget !== hit.id) {
+                    // Newly hovered
+                    activeHoverTarget = hit.id;
+                    hoverStartTime = Date.now();
+                    // Reset the other ring immediately
+                    const otherConfig = hit.id === 'left' ? rightConfig : leftConfig;
+                    updateRing(otherConfig.ring, 0);
+                    resetRingScale(otherConfig.el);
+                } else {
+                    // Continuing to hover
+                    const elapsed = Date.now() - hoverStartTime;
+                    const progress = Math.min(elapsed / dwellTimeRequired, 1);
+                    
+                    updateRing(hit.ring, progress);
+                    
+                    if (elapsed >= dwellTimeRequired) {
+                        handleSelection(hit);
+                        resetHover();
+                    }
+                }
+            } else {
+                resetHover();
+            }
+        }
+
+        function resetHover() {
+            activeHoverTarget = null;
+            pointerCursor.classList.remove('active');
+            updateRing(leftConfig.ring, 0); resetRingScale(leftConfig.el);
+            updateRing(rightConfig.ring, 0); resetRingScale(rightConfig.el);
+            box3DLeft.isHovered = false;
+            box3DRight.isHovered = false;
+        }
+
+        function onResults(results) {
+            // Remove loading screen on first frame
+            const loadingScreen = document.getElementById('loading-screen');
+            if(!loadingScreen.classList.contains('hidden')) {
+                loadingScreen.classList.add('hidden');
+                document.getElementById('start-screen').classList.remove('hidden');
+            }
+
+            if (!isPlaying) return;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                // Get Index Finger Tip
+                const indexTip = results.multiHandLandmarks[0][8];
+                
+                // Map to screen (Mirror X)
+                pointerX = (1 - indexTip.x) * window.innerWidth;
+                pointerY = indexTip.y * window.innerHeight;
+                
+                pointerCursor.style.left = `${pointerX}px`;
+                pointerCursor.style.top = `${pointerY}px`;
+                
+                checkIntersection();
+            } else {
+                pointerX = -100; pointerY = -100;
+                resetHover();
+            }
+        }
+
+        // Initialize MediaPipe Hands
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+        
+        hands.setOptions({
+            maxNumHands: 1, // Only 1 hand for simpler control
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
+        
+        hands.onResults(onResults);
+        
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 640,
+            height: 480 // Lower res internally for faster processing, scales via CSS
+        });
+        
+        camera.start().catch(err => {
+            document.getElementById('loading-text').innerHTML = "Hardware/Camera access failed.<br>Switching to Mouse/Touch mode...";
+            console.error("Camera Error:", err);
+            
+            // Fallback to Mouse/Touch Control after 2 seconds
+            setTimeout(() => {
+                const loadingScreen = document.getElementById('loading-screen');
+                if(!loadingScreen.classList.contains('hidden')) {
+                    loadingScreen.classList.add('hidden');
+                    document.getElementById('start-screen').classList.remove('hidden');
+                }
+                
+                window.addEventListener('mousemove', (e) => {
+                    pointerX = e.clientX; pointerY = e.clientY;
+                    pointerCursor.style.left = `${pointerX}px`; pointerCursor.style.top = `${pointerY}px`;
+                    checkIntersection();
+                });
+
+                window.addEventListener('touchmove', (e) => {
+                    if (e.touches.length > 0) {
+                        pointerX = e.touches[0].clientX; pointerY = e.touches[0].clientY;
+                        pointerCursor.style.left = `${pointerX}px`; pointerCursor.style.top = `${pointerY}px`;
+                        checkIntersection();
+                    }
+                });
+            }, 2000);
+        });
+
+    </script>
+</body>
+</html>
